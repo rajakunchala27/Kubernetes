@@ -1,0 +1,325 @@
+Here’s a **clean, well-structured Markdown (.md) document** with step-by-step explanation of your Kubernetes setup using **kubeadm on AWS EC2 (Ubuntu + containerd)**.
+
+---
+
+# 📘 Kubernetes Cluster Setup (kubeadm on AWS EC2)
+
+## 📌 Overview
+
+A Kubernetes cluster can be set up in two ways:
+
+### 1️⃣ Self-Managed Kubernetes Cluster
+
+* Tools:
+
+  * **Minikube** (Single-node cluster)
+  * **kubeadm** (Multi-node cluster)
+* Responsibility:
+
+  * Pod failures → handled by Kubernetes
+  * Node failures → **manual intervention required**
+
+### 2️⃣ Cloud-Managed Kubernetes Cluster
+
+* Services:
+
+  * Amazon Web Services → EKS (Elastic Kubernetes Service)
+  * Microsoft Azure → AKS (Azure Kubernetes Service)
+  * Google Cloud Platform → GKE (Google Kubernetes Engine)
+* Responsibility:
+
+  * Pod failures → handled by Kubernetes
+  * Node failures → handled by cloud provider
+
+---
+
+## 🏗️ Cluster Architecture
+
+* 1 Master Node
+* 2 Worker Nodes
+
+---
+
+## ⚙️ Prerequisites
+
+| Node Type | Specs                      |
+| --------- | -------------------------- |
+| Master    | 4GB RAM, 2 CPU (t2.medium) |
+| Workers   | 1GB RAM, 1 CPU (t2.micro)  |
+
+* OS: Ubuntu
+* Open all required ports in AWS Security Group (for practice: allow all traffic)
+
+---
+
+# 🚀 Step-by-Step Setup
+
+---
+
+## 🔧 Common Steps (Master + Worker Nodes)
+
+### 1. Switch to Root User
+
+```bash
+sudo su -
+```
+
+---
+
+### 2. Disable Swap
+
+```bash
+swapoff -a
+sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+```
+
+👉 Kubernetes requires swap to be disabled.
+
+---
+
+### 3. Configure Kernel Modules & Networking
+
+```bash
+cat <<EOF | tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+modprobe overlay
+modprobe br_netfilter
+```
+
+```bash
+cat <<EOF | tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+sysctl --system
+```
+
+👉 Enables **Pod-to-Pod communication**
+
+---
+
+### 4. Install Container Runtime (containerd)
+
+```bash
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg lsb-release
+```
+
+#### Add Docker Repo (for containerd)
+
+```bash
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+```
+
+```bash
+echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+$(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list
+```
+
+#### Install containerd
+
+```bash
+apt-get update -y
+apt-get install -y containerd.io
+```
+
+#### Configure containerd
+
+```bash
+containerd config default > /etc/containerd/config.toml
+```
+
+```bash
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+```
+
+```bash
+systemctl restart containerd
+systemctl enable containerd
+```
+
+---
+
+### 5. Install Kubernetes Components
+
+```bash
+apt-get update
+apt-get install -y apt-transport-https ca-certificates curl
+```
+
+#### Add Kubernetes Repo
+
+```bash
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+```
+
+```bash
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /' \
+| tee /etc/apt/sources.list.d/kubernetes.list
+```
+
+#### Install Packages
+
+```bash
+apt-get update
+apt-get install -y kubelet kubeadm kubectl
+apt-mark hold kubelet kubeadm kubectl
+```
+
+```bash
+systemctl enable kubelet
+systemctl start kubelet
+```
+
+---
+
+### 6. Install conntrack
+
+```bash
+apt install -y conntrack
+conntrack -V
+```
+
+---
+
+# 🧠 Master Node Setup
+
+---
+
+### 1. Initialize Cluster
+
+```bash
+kubeadm init
+```
+
+👉 Optional (Public IP setup):
+
+```bash
+kubeadm init --control-plane-endpoint "PUBLIC_IP:6443"
+```
+
+👉 If error:
+
+```bash
+kubeadm init --cri-socket /run/containerd/containerd.sock
+```
+
+---
+
+### 2. Configure kubectl (Non-root user)
+
+```bash
+exit
+mkdir -p $HOME/.kube
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+---
+
+### 3. Verify Cluster
+
+```bash
+kubectl get nodes
+kubectl get pods -n kube-system
+```
+
+---
+
+### 4. Install Network Plugin
+
+👉 Required for DNS & Pod networking
+
+#### Option 1: Weave Net
+
+```bash
+kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
+```
+
+#### Option 2: Calico
+
+```bash
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+```
+
+---
+
+### 5. Get Join Command
+
+```bash
+kubeadm token create --print-join-command
+```
+
+---
+
+# 👷 Worker Node Setup
+
+Run the join command from Master node:
+
+```bash
+kubeadm join <MASTER_IP>:6443 --token <TOKEN> --discovery-token-ca-cert-hash <HASH>
+```
+
+---
+
+# 🔍 Verify Cluster
+
+Run on Master:
+
+```bash
+kubectl get nodes
+```
+
+---
+
+# 🚀 Deploy Sample Application
+
+```bash
+kubectl run nginx-demo --image=nginx --port=80
+```
+
+```bash
+kubectl create namespace test
+```
+
+---
+
+# ✅ Key Notes
+
+* Kubernetes handles:
+
+  * Pod failures ✅
+* You handle:
+
+  * Node failures ❗ (self-managed setup)
+* Install **only one** network plugin (Calico OR Weave)
+
+---
+
+# 📌 Summary
+
+This setup uses:
+
+* Kubernetes
+* kubeadm
+* containerd
+* Amazon EC2 instances
+
+You now have a fully functional **multi-node Kubernetes cluster** 🚀
+
+---
+
+If you want, I can also convert this into:
+
+* 📄 Downloadable `.md` file
+* 📊 Diagram (architecture visual)
+* 🧪 Interview questions from this setup
+
+Just tell me 👍
