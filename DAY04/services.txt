@@ -1,0 +1,159 @@
+service Types
+=============
+1. ClusterIP
+2. NodePort
+3. Load balancer
+
+
+1. ClusterIP
+------------
+
+--> Exposes the service on a cluster-internal IP. Service is only reachable from within the cluster. This is the default Type.
+
+--> When we create a service we will get one Virtual IP (Cluster IP) it will get registered to the DNS(kube-dns). Using this Other PODS can find and talk the pods of this service using service name.
+
+--> Service is just a logical concept, the real work is being done by the “kube-proxy” pod that is running on each node.
+
+--> It redirect requests from Cluster IP(Virtual IP Address) to Pod IP.
+
+
+Example 1:
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: javawebapp
+  labels:
+    app: javawebapp
+    env: prod
+  namespace: prod
+spec:
+  containers:
+  - name: javawebapp
+    image: kkeducationb2/java-webapp:1.1
+    ports:
+    - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+ name: javawebappsvc
+ namespace: prod
+spec:
+  type: ClusterIP
+  selector:
+    app: javawebapp
+    app: web-app-2
+  ports:
+  - port: 80
+    targetPort: 8080
+
+
+
+kubectl apply -f pod1.yaml
+
+kubectl get all -n test-ns -o wide --show-labels
+
+kubectl describe svc javawebappsvc  --> to check the endpoints
+
+
+NOTE: create one more pod with same labels and see the endpoints.
+
+
+Example 2:
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: simple-web-app
+  labels:
+    app: simple-web-app
+spec:
+  containers:
+  - name: simple-web-app
+    image: nginx:latest  # Nginx image to serve a basic web page
+    ports:
+    - containerPort: 80  # Nginx listens on port 80
+ ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simple-web-service
+spec:
+  selector:
+    app: simple-web-app  # Match pods with the same label
+  ports:
+    - protocol: TCP
+      port: 80  # Service port
+      targetPort: 80  # The port on the container
+  type: ClusterIP  # This is the default type for services
+
+
+
+curl http://10.110.231.227:80 --> From outside pod
+
+
+2. NodePort
+-----------
+
+Exposes the service on each Node’s IP at a static port. 
+
+--> A ClusterIP service, to which the NodePort service will route,  is automatically created. 
+
+-->You’ll be able to contact the NodePort service, from outside the cluster, by using     “<NodeIP>:<NodePort>”.
+
+--> Note: If we don’t define nodePort value for NodePort Service. K8’s will randomly
+Allocate a nodePort with in 30000—32767.
+
+
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: javawebapp
+  labels:
+    app: javawebapp
+  namespace: test-ns
+spec:
+  containers:
+  - name: javawebapp
+    image: kkeducationb2/java-webapp:1.1
+    ports:
+    - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+ name: javawebappsvcnp
+ namespace: test-ns
+spec:
+  type: NodePort
+  selector:
+    app: javawebapp
+  ports:
+  - port: 80
+    targetPort: 8080
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
